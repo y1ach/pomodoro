@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Chill Corner - Pomodoro</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to bottom, #2e3440, #3b4252);
+      color: #eceff4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      padding-top: 30px;
+    }
+    .rain {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      background: url('https://i.imgur.com/NM4tP7Y.gif') repeat;
+      opacity: 0.2;
+      z-index: -1;
+    }
+    .player, .embed-player {
+      margin: 10px;
+    }
+    .timer {
+      font-size: 48px;
+      margin: 10px;
+    }
+    .status {
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    .notes {
+      width: 300px;
+      height: 150px;
+      background: #434c5e;
+      border: none;
+      padding: 10px;
+      color: #eceff4;
+      resize: none;
+      margin-top: 20px;
+    }
+    input, button, select {
+      margin: 5px;
+      padding: 8px;
+      border: none;
+      border-radius: 5px;
+    }
+    #playlistInput {
+      width: 280px;
+    }
+    .info {
+      font-size: 14px;
+      color: #d8dee9;
+      max-width: 320px;
+      text-align: center;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="rain"></div>
+
+  <h1>🪴 Chill Corner</h1>
+
+  <!-- Ayarlar -->
+  <div>
+    <label>Çalışma (dk): <input type="number" id="workTime" value="25" min="1" /></label>
+    <label>Mola (dk): <input type="number" id="breakTime" value="5" min="1" /></label>
+    <label>Tur sayısı: <input type="number" id="rounds" value="4" min="1" /></label>
+    <button onclick="startPomodoro()">Başla</button>
+  </div>
+
+  <div class="status" id="status">Hazır</div>
+  <div class="timer" id="timer">25:00</div>
+
+  <!-- Müzik -->
+  <div class="player">
+    <audio id="ambience-audio" autoplay loop>
+      <source src="https://cdn.pixabay.com/download/audio/2022/02/23/audio_0ba4c8dcd4.mp3?filename=fireplace-ambience-110995.mp3" type="audio/mpeg">
+    </audio>
+  </div>
+
+  <select id="platformSelect">
+    <option value="spotify">Spotify</option>
+    <option value="soundcloud">SoundCloud</option>
+    <option value="mp3">MP3 URL</option>
+  </select>
+  <input type="text" id="playlistInput" placeholder="Playlist ya da dosya linki gir" />
+  <button onclick="loadPlaylist()">Yükle</button>
+
+  <div class="info" id="infoBox"></div>
+  <div class="embed-player" id="embedContainer"></div>
+
+  <textarea class="notes" placeholder="Yazmak istediklerin burada..." id="notes"></textarea>
+
+  <script>
+    // Notlar
+    const notesArea = document.getElementById('notes');
+    notesArea.value = localStorage.getItem('chill-notes') || '';
+    notesArea.addEventListener('input', () => {
+      localStorage.setItem('chill-notes', notesArea.value);
+    });
+
+    // Arka plan güncelle
+    const hour = new Date().getHours();
+    if (hour >= 6 && hour < 18) {
+      document.body.style.background = 'linear-gradient(to bottom, #81a1c1, #d8dee9)';
+    }
+
+    // Müzik
+    function loadPlaylist() {
+      const platform = document.getElementById('platformSelect').value;
+      const link = document.getElementById('playlistInput').value.trim();
+      const embed = document.getElementById('embedContainer');
+      const info = document.getElementById('infoBox');
+      embed.innerHTML = '';
+      info.textContent = '';
+
+      if (platform === 'spotify') {
+        const match = link.match(/playlist\/([a-zA-Z0-9]+)/);
+        if (!match) {
+          alert("Geçerli bir Spotify playlist linki gir.");
+          return;
+        }
+        const id = match[1];
+        embed.innerHTML = `<iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/${id}?utm_source=generator" width="300" height="80" frameBorder="0" allowtransparency="true" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
+        info.innerHTML = `<b>Not:</b> Spotify sadece 30 saniye çalabilir. Giriş ve Premium gerekebilir. Alternatif olarak SoundCloud ya da MP3 linki deneyebilirsin.`;
+      } else if (platform === 'soundcloud') {
+        const encoded = encodeURIComponent(link);
+        embed.innerHTML = `<iframe width="300" height="166" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encoded}&color=%23636cff&auto_play=false&show_comments=true&show_user=true&visual=false"></iframe>`;
+      } else if (platform === 'mp3') {
+        embed.innerHTML = `<audio controls autoplay loop style="width: 300px;"><source src="${link}" type="audio/mpeg">Tarayıcınız bu sesi desteklemiyor.</audio>`;
+      }
+    }
+
+    // Pomodoro sistemi
+    let timerEl = document.getElementById('timer');
+    let statusEl = document.getElementById('status');
+    let interval;
+    let isBreak = false;
+    let currentRound = 1;
+
+    function startPomodoro() {
+      clearInterval(interval);
+      isBreak = false;
+      currentRound = 1;
+
+      const workTime = parseInt(document.getElementById('workTime').value) * 60;
+      const breakTime = parseInt(document.getElementById('breakTime').value) * 60;
+      const totalRounds = parseInt(document.getElementById('rounds').value);
+
+      let time = workTime;
+      updateStatus();
+
+      interval = setInterval(() => {
+        let minutes = Math.floor(time / 60);
+        let seconds = time % 60;
+        timerEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+        if (time > 0) {
+          time--;
+        } else {
+          clearInterval(interval);
+          if (!isBreak) {
+            // Bitir çalışma → mola
+            isBreak = true;
+            time = breakTime;
+            updateStatus();
+            interval = setInterval(arguments.callee, 1000);
+          } else {
+            // Bitir mola → yeni tur veya bitir
+            isBreak = false;
+            currentRound++;
+            if (currentRound > totalRounds) {
+              timerEl.textContent = "Bitti 🎉";
+              statusEl.textContent = "Tüm turlar tamamlandı!";
+            } else {
+              time = workTime;
+              updateStatus();
+              interval = setInterval(arguments.callee, 1000);
+            }
+          }
+        }
+      }, 1000);
+    }
+
+    function updateStatus() {
+      const totalRounds = parseInt(document.getElementById('rounds').value);
+      statusEl.textContent = `Tur ${currentRound}/${totalRounds} - ${isBreak ? "Mola" : "Çalışma"}`;
+    }
+  </script>
+</body>
+</html>
